@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Lentes: Convergente y Divergente</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #222; color: white; display: flex; flex-direction: column; align-items: center; }
+        canvas { background: #fff; border-radius: 4px; cursor: crosshair; }
+        .controls { background: #333; padding: 20px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+        .control-group { display: flex; flex-direction: column; width: 200px; }
+        label { font-size: 0.9rem; margin-bottom: 5px; color: #aaa; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        .data-display { margin-top: 10px; font-weight: bold; color: #4db8ff; }
+        .legend { font-size: 0.8rem; color: #aaa; margin-top: 5px; display: flex; gap: 15px; }
+        .legend span { display: flex; align-items: center; gap: 5px; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    </style>
+</head>
+<body>
+
+    <h1>Óptica Geométrica: Lentes Delgadas</h1>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>Distancia Focal (f)</label>
+            <input type="range" id="fRange" min="-150" max="150" value="100" step="5">
+            <div class="data-display">f: <span id="fVal">100</span> px</div>
+            <small id="lensType" style="color: yellow;">Convergente</small>
+        </div>
+        <div class="control-group">
+            <label>Posición Objeto (do)</label>
+            <input type="range" id="doRange" min="10" max="350" value="200">
+            <div class="data-display">do: <span id="doVal">200</span> px</div>
+        </div>
+        <div class="control-group">
+            <label>Altura Objeto (ho)</label>
+            <input type="range" id="hoRange" min="10" max="100" value="60">
+            <div class="data-display">ho: <span id="hoVal">60</span> px</div>
+        </div>
+    </div>
+
+    <canvas id="simCanvas" width="800" height="450"></canvas>
+    
+    <div class="legend">
+        <span><span class="dot" style="background:blue"></span> Objeto</span>
+        <span><span class="dot" style="background:green"></span> Imagen</span>
+        <span><span class="dot" style="background:red"></span> Focos</span>
+        <span>(Líneas punteadas = Virtual)</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        const cx = w / 2; // Centro óptico X
+        const cy = h / 2; // Centro óptico Y
+
+        const fSlider = document.getElementById('fRange');
+        const doSlider = document.getElementById('doRange');
+        const hoSlider = document.getElementById('hoRange');
+
+        function update() {
+            // 1. Obtener valores
+            let f = parseInt(fSlider.value);
+            let do_val = parseInt(doSlider.value);
+            let ho = parseInt(hoSlider.value);
+
+            if (f === 0) f = 1; // Evitar división por cero
+
+            // Actualizar UI
+            document.getElementById('fVal').innerText = f;
+            document.getElementById('doVal').innerText = do_val;
+            document.getElementById('hoVal').innerText = ho;
+            document.getElementById('lensType').innerText = f > 0 ? "Convergente (Convexa)" : "Divergente (Cóncava)";
+
+            // 2. Cálculos (Ecuación de Lentes Delgadas: 1/f = 1/do + 1/di)
+            // di = (f * do) / (do - f)
+            let di = (f * do_val) / (do_val - f);
+            let m = -di / do_val;   // Magnificación
+            let hi = m * ho;        // Altura imagen
+
+            // 3. Dibujar
+            ctx.clearRect(0, 0, w, h);
+
+            // Eje Principal
+            ctx.strokeStyle = '#ccc';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+            
+            // La Lente
+            ctx.strokeStyle = '#4db8ff';
+            ctx.setLineDash([]);
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(cx, cy - 150); ctx.lineTo(cx, cy + 150); ctx.stroke();
+            
+            // Símbolos de la lente (flechas en las puntas)
+            drawLensEnds(f > 0);
+
+            // Puntos Focales
+            drawPoint(cx - f, cy, "F");
+            drawPoint(cx + f, cy, "F'");
+
+            // Coordenadas Objeto e Imagen
+            // Objeto (siempre a la izquierda en este modelo)
+            let objX = cx - do_val;
+            let objY = cy - ho;
+
+            // Imagen
+            let imgX = cx + di;
+            let imgY = cy + hi; // Nota: en canvas Y crece hacia abajo, el signo se ajusta solo
+
+            // DIBUJAR OBJETO (Azul)
+            drawArrow(objX, cy, objX, objY, 'blue');
+
+            // DIBUJAR IMAGEN (Verde)
+            // Si di es infinito o muy lejos, no dibujar
+            if (Math.abs(di) < 3000) {
+                let alpha = di < 0 ? 0.5 : 1; // Un poco transparente si es virtual
+                drawArrow(imgX, cy, imgX, imgY, `rgba(0, 128, 0, ${alpha})`);
+            }
+
+            // --- TRAZADO DE RAYOS (Rojos) ---
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 1;
+
+            // Rayo 1: Paralelo al eje -> Pasa por el foco imagen
+            ctx.beginPath();
+            ctx.moveTo(objX, objY);
+            ctx.lineTo(cx, objY); // Llega a la lente
+            ctx.stroke();
+
+            // Parte refractada del Rayo 1
+            if (f > 0) { // Convergente
+                drawLineFull(cx, objY, cx + f, cy, 1000); 
+            } else { // Divergente (parece venir del foco objeto)
+                // Hacia adelante (diverge)
+                ctx.setLineDash([]);
+                let angle = Math.atan2(objY - cy, cx - (cx + f)); // Ángulo desde el foco
+                ctx.beginPath(); ctx.moveTo(cx, objY); 
+                ctx.lineTo(cx + 500, objY + 500 * Math.tan(angle)); ctx.stroke();
+                
+                // Proyección virtual hacia atrás (hacia el foco)
+                ctx.setLineDash([2, 4]);
+                ctx.beginPath(); ctx.moveTo(cx, objY); ctx.lineTo(cx + f, cy); ctx.stroke();
+            }
+
+            // Rayo 2: Pasa por el centro óptico (sin desviación)
+            ctx.setLineDash([]);
+            // Dibujamos una linea larga que pase por ambos puntos
+            let slope2 = (cy - objY) / (cx - objX);
+            // Simplemente dibujamos desde el objeto hasta la imagen calculada
+            ctx.beginPath(); ctx.moveTo(objX, objY); ctx.lineTo(cx, cy); 
+            // Continuar hasta la imagen
+            if(Math.abs(di) < 3000) ctx.lineTo(imgX, imgY);
+            else ctx.lineTo(cx + 500, cy + 500 * slope2); // Si imagen está muy lejos
+            ctx.stroke();
+        }
+
+        // Helpers
+        function drawPoint(x, y, label) {
+            ctx.fillStyle = 'red';
+            ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#666'; ctx.fillText(label, x-5, y+15);
+        }
+
+        function drawArrow(x1, y1, x2, y2, color) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.setLineDash([]);
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+            // Cabeza
+            let angle = Math.atan2(y2-y1, x2-x1);
+            let head = 10;
+            ctx.beginPath();
+            ctx.lineTo(x2 - head * Math.cos(angle - Math.PI/6), y2 - head * Math.sin(angle - Math.PI/6));
+            ctx.lineTo(x2, y2);
+            ctx.lineTo(x2 - head * Math.cos(angle + Math.PI/6), y2 - head * Math.sin(angle + Math.PI/6));
+            ctx.stroke();
+        }
+
+        function drawLensEnds(isConvergent) {
+            let yTop = cy - 150;
+            let yBot = cy + 150;
+            ctx.beginPath();
+            if(isConvergent) { // Flechas hacia afuera
+                ctx.moveTo(cx - 10, yTop + 10); ctx.lineTo(cx, yTop); ctx.lineTo(cx + 10, yTop + 10);
+                ctx.moveTo(cx - 10, yBot - 10); ctx.lineTo(cx, yBot); ctx.lineTo(cx + 10, yBot - 10);
+            } else { // Flechas invertidas (forma de reloj de arena simbólica)
+                ctx.moveTo(cx - 10, yTop); ctx.lineTo(cx, yTop + 10); ctx.lineTo(cx + 10, yTop);
+                ctx.moveTo(cx - 10, yBot); ctx.lineTo(cx, yBot - 10); ctx.lineTo(cx + 10, yBot);
+            }
+            ctx.stroke();
+        }
+
+        function drawLineFull(x1, y1, x2, y2, length) {
+            let angle = Math.atan2(y2 - y1, x2 - x1);
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x1 + Math.cos(angle) * length, y1 + Math.sin(angle) * length);
+            ctx.stroke();
+        }
+
+        // Listeners
+        fSlider.addEventListener('input', update);
+        doSlider.addEventListener('input', update);
+        hoSlider.addEventListener('input', update);
+
+        update(); // Inicio
+    </script>
+</body>
+</html>
